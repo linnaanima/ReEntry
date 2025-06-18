@@ -624,3 +624,203 @@ with col2:
         if 'Altitude_km' in df.columns:
             altitude_data = df.dropna(subset=['Altitude_km'])
             if not altitude_data.empty:
+                fig_alt = px.histogram(altitude_data, x='Altitude_km', 
+                                     title="📏 Bahnhöhen-Verteilung",
+                                     nbins=15,
+                                     color_discrete_sequence=['#3498db'])
+                fig_alt.update_layout(
+                    xaxis_title="Höhe (km)",
+                    yaxis_title="Anzahl Objekte"
+                )
+                st.plotly_chart(fig_alt, use_container_width=True)
+        
+        # Zeitliche Verteilung der Wiedereintritte
+        if 'Days_to_Reentry' in df.columns:
+            days_data = df.dropna(subset=['Days_to_Reentry'])
+            if not days_data.empty:
+                fig_days = px.histogram(days_data, x='Days_to_Reentry',
+                                      title="📅 Wiedereintritt-Zeitplan",
+                                      nbins=10,
+                                      color_discrete_sequence=['#e74c3c'])
+                fig_days.update_layout(
+                    xaxis_title="Tage bis Wiedereintritt",
+                    yaxis_title="Anzahl Objekte"
+                )
+                st.plotly_chart(fig_days, use_container_width=True)
+        
+        # Nächste kritische Wiedereintritte
+        st.subheader("🚨 Nächste kritische Ereignisse")
+        
+        if 'Days_to_Reentry' in df.columns and 'Risk_Level' in df.columns:
+            critical = df[
+                (df['Days_to_Reentry'] <= 3) | 
+                (df['Risk_Level'] == 'Hoch')
+            ].copy()
+            
+            if not critical.empty:
+                critical_display = critical[['Object', 'Object_Type', 'Days_to_Reentry', 'Risk_Level']].head(5)
+                
+                for _, row in critical_display.iterrows():
+                    risk_emoji = "🔴" if row['Risk_Level'] == 'Hoch' else "🟡" if row['Risk_Level'] == 'Mittel' else "🟢"
+                    type_emoji = "🚀" if row['Object_Type'] == 'Rocket Body' else "🗑️" if row['Object_Type'] == 'Debris' else "🛰️"
+                    
+                    st.warning(f"{risk_emoji} {type_emoji} **{row['Object'][:30]}...**\n"
+                             f"📅 In {row['Days_to_Reentry']:.1f} Tagen")
+            else:
+                st.success("✅ Keine kritischen Wiedereintritte in den nächsten 3 Tagen")
+        
+        # Datenquelle-Übersicht
+        if 'Source' in df.columns:
+            source_counts = df['Source'].value_counts()
+            st.subheader("📊 Datenquellen")
+            
+            for source, count in source_counts.items():
+                percentage = (count / len(df)) * 100
+                st.metric(
+                    label=source,
+                    value=f"{count} Objekte",
+                    delta=f"{percentage:.1f}%"
+                )
+
+# Wichtige Hinweise
+st.subheader("📚 Datenquellen & APIs")
+
+col_info1, col_info2 = st.columns(2)
+
+with col_info1:
+    st.info("""
+    **🔑 Empfohlene API-Registrierungen:**
+
+    1. **Space-Track.org** (Beste Qualität)
+       - Kostenlose Registrierung
+       - Offizielle US-Wiedereintritt-Vorhersagen
+       - Vollständige TLE-Datenbank
+
+    2. **CelesTrak** (Backup)
+       - Keine Registrierung erforderlich
+       - TLE-Daten für Berechnungen
+       - Kann Timeouts haben
+
+    3. **N2YO.com** (Erweitert)
+       - API-Key erforderlich
+       - Real-time Tracking
+       - Zusätzliche Satellitendaten
+    """)
+
+with col_info2:
+    st.warning("""
+    **⚠️ Wiedereintritt-Vorhersagen:**
+    
+    - **Unsicherheit**: ±1-3 Tage typisch
+    - **Atmosphäre**: Schwankungen beeinflussen Vorhersagen
+    - **Sonnenaktivität**: Erhöht atmosphärische Dichte
+    - **Objektgröße**: Größere Objekte = größere Trümmer
+    - **Geschwindigkeit**: ~7-8 km/s beim Wiedereintritt
+    
+    **🔥 Verglühen:**
+    - 90% aller Objekte verglühen vollständig
+    - Nur Objekte >1m können Trümmer produzieren
+    - Raketenoberstufen haben höchstes Überlebensrisiko
+    """)
+
+# Erweiterte Funktionen
+st.subheader("🔧 Erweiterte Funktionen")
+
+col_func1, col_func2, col_func3 = st.columns(3)
+
+with col_func1:
+    if st.button("🔄 Daten aktualisieren"):
+        st.rerun()
+
+with col_func2:
+    if reentry_data and st.button("📥 CSV Download"):
+        csv = pd.DataFrame(reentry_data).to_csv(index=False)
+        st.download_button(
+            label="📊 Daten als CSV herunterladen",
+            data=csv,
+            file_name=f"satellite_reentry_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv"
+        )
+
+with col_func3:
+    if st.button("📧 Alert Setup"):
+        st.info("🚧 Alert-System in Entwicklung\n\nGeplante Features:\n- E-Mail Benachrichtigungen\n- Webhook Integration\n- Telegram Bot")
+
+# Deutschland-spezifische Analyse
+if reentry_data:
+    st.subheader("🇩🇪 Deutschland-Relevanz")
+    
+    df = pd.DataFrame(reentry_data)
+    
+    # Objekte über Deutschland
+    if 'Estimated_Lat' in df.columns and 'Estimated_Lon' in df.columns:
+        germany_objects = df[
+            (df['Estimated_Lat'] >= GERMANY_BOUNDS['lat_min']) &
+            (df['Estimated_Lat'] <= GERMANY_BOUNDS['lat_max']) &
+            (df['Estimated_Lon'] >= GERMANY_BOUNDS['lon_min']) &
+            (df['Estimated_Lon'] <= GERMANY_BOUNDS['lon_max'])
+        ]
+        
+        if not germany_objects.empty:
+            st.error(f"🚨 {len(germany_objects)} Objekte könnten über Deutschland eintreten!")
+            
+            for _, obj in germany_objects.head(3).iterrows():
+                st.warning(f"⚠️ **{obj['Object']}**\n"
+                         f"📍 Position: {obj['Estimated_Lat']:.2f}°N, {obj['Estimated_Lon']:.2f}°E\n"
+                         f"📅 In {obj.get('Days_to_Reentry', 'N/A')} Tagen")
+        else:
+            st.success("✅ Keine direkten Überflüge über Deutschland erwartet")
+    
+    # Statistische Wahrscheinlichkeit
+    st.info("""
+    **📊 Statistische Einordnung für Deutschland:**
+    
+    - **Landfläche**: 357.386 km² (0.24% der Erdoberfläche)
+    - **Wiedereintritt-Wahrscheinlichkeit**: ~0.1-0.3% pro Objekt
+    - **Jährliche Wiedereintritte**: ~200-400 katalogisierte Objekte
+    - **Trümmer-Treffer**: Extrem selten (~1 in 10.000 Jahren)
+    
+    **🏙️ Bevölkerungsdichte**: 233 Einwohner/km²
+    **🛡️ Überwachung**: DLR GESTRA (German Space Situational Awareness)
+    """)
+
+# Auto-Refresh Option
+st.subheader("🔄 Automatische Aktualisierung")
+
+auto_refresh = st.selectbox(
+    "Aktualisierungs-Intervall:",
+    ["Deaktiviert", "5 Minuten", "15 Minuten", "1 Stunde"],
+    index=0
+)
+
+if auto_refresh != "Deaktiviert":
+    refresh_seconds = {
+        "5 Minuten": 300,
+        "15 Minuten": 900,
+        "1 Stunde": 3600
+    }
+    
+    st.info(f"🔄 Automatische Aktualisierung alle {auto_refresh} aktiviert")
+    
+    # Countdown anzeigen
+    placeholder = st.empty()
+    
+    for remaining in range(refresh_seconds[auto_refresh], 0, -1):
+        mins, secs = divmod(remaining, 60)
+        placeholder.metric(
+            "⏱️ Nächste Aktualisierung in:",
+            f"{mins:02d}:{secs:02d}"
+        )
+        time.sleep(1)
+    
+    st.rerun()
+
+# Footer
+st.markdown("---")
+st.markdown("""
+<div style='text-align: center; color: gray;'>
+🛰️ Satelliten-Wiedereintritt Tracker v2.0 | 
+Daten von Space-Track.org, CelesTrak & N2YO |
+⚠️ Nur für Informationszwecke - Keine Gewährleistung für Genauigkeit
+</div>
+""", unsafe_allow_html=True)
